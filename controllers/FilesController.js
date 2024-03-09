@@ -37,13 +37,13 @@ class FilesController {
       name,
       type,
       userId,
-      parentId: parentId || '0',
+      parentId: parentId || 0,
       isPublic: isPublic || false,
     };
-    const users = dbClient.db.collection('files');
+    const files = dbClient.db.collection('files');
     const _id = new ObjectID(parentId);
     if (parentId) {
-      await users.findOne({ _id }, async (err, result) => {
+      await files.findOne({ _id }, async (err, result) => {
         if (!result) {
           res.status(400).json({ error: 'Parent not found' });
         } else if (result.type !== 'folder') {
@@ -51,7 +51,7 @@ class FilesController {
         }
       });
     } else if (type === 'folder') {
-      await dbClient.dbcollection('files').insertOne(file);
+      await dbClient.db.collection('files').insertOne(file);
       res.status(201).json(file);
     } else {
       const folderPath = process.env.FOLDER_PATH || '/tmp/files_manager';
@@ -59,8 +59,10 @@ class FilesController {
         fs.mkdirSync(folderPath, { recursive: true });
       }
       const fileName = `${folderPath}/${v4()}`;
-      fs.writeFile(fileName, data);
-      file.data = fileName;
+      fs.writeFile(fileName, data, (err) => {
+        console.log(err);
+      });
+      file.localPath = fileName;
       await dbClient.db.collection('files').insertOne(file);
       res.status(201).json(file);
     }
