@@ -10,6 +10,7 @@ class DBClient {
       { useUnifiedTopology: true }
     );
     this.client.connect();
+    this.db = this.client.db(this.database);
   }
 
   isAlive () {
