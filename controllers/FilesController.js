@@ -25,7 +25,7 @@ class FilesController {
       res.status(400).json({ error: 'Missing name' });
       return;
     }
-    if (!type || !['folder', 'file', 'image'].includes(type)) {
+    if (!type) {
       res.status(400).json({ error: 'Missing type' });
       return;
     }
