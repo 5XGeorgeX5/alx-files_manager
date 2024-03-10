@@ -9,7 +9,10 @@ class FilesController {
     const token = req.header('X-Token');
     const key = `auth_${token}`;
     const userId = await redisClient.get(key);
-    if (!userId) {
+    const users = dbClient.db.collection('users');
+    const objectUserId = new ObjectID(userId);
+    const user = await users.findOne({ _id: objectUserId });
+    if (!user) {
       res.status(401).json({ error: 'Unauthorized' });
       return;
     }
@@ -50,22 +53,30 @@ class FilesController {
           res.status(400).json({ error: 'Parent is not a folder' });
         }
       });
-    } else if (type === 'folder') {
-      await dbClient.db.collection('files').insertOne(file);
-      res.status(201).json(file);
-    } else {
-      const folderPath = process.env.FOLDER_PATH || '/tmp/files_manager';
-      if (!fs.existsSync(folderPath)) {
-        fs.mkdirSync(folderPath, { recursive: true });
-      }
-      const fileName = `${folderPath}/${v4()}`;
-      fs.writeFile(fileName, data, (err) => {
-        console.log(err);
-      });
-      file.localPath = fileName;
-      await dbClient.db.collection('files').insertOne(file);
-      res.status(201).json(file);
     }
+    if (type === 'folder') {
+      const result = await dbClient.db.collection('files').insertOne(file);
+      res.status(201).json({ ...file, id: result.insertedId });
+    }
+    const folderPath = process.env.FOLDER_PATH || '/tmp/files_manager';
+    if (!fs.existsSync(folderPath)) {
+      fs.mkdirSync(folderPath, { recursive: true });
+    }
+    const filePath = `${folderPath}/${v4()}`;
+    fs.writeFile(
+      filePath,
+      Buffer.from(data, 'base64'),
+      'utf-8',
+      async (err) => {
+        if (!err) {
+          const result = await files.insertOne({
+            ...file,
+            localPath: filePath,
+          });
+          res.status(201).json({ ...file, id: result.insertedId });
+        }
+      },
+    );
   }
 }
 module.exports = FilesController;
