@@ -1,6 +1,7 @@
 import fs from 'fs';
 import { ObjectID } from 'mongodb';
 import { v4 } from 'uuid';
+import mime from 'mime-types';
 import dbClient from '../utils/db';
 import redisClient from '../utils/redis';
 
@@ -65,6 +66,124 @@ class FilesController {
       localPath: filePath,
     });
     res.status(201).json({ ...file, id: result.insertedId.toString() });
+  }
+
+  static async getIndex(req, res) {
+    const token = req.header('X-Token');
+    const key = `auth_${token}`;
+    const user = await redisClient.get(key);
+    if (!user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+    const { parentId, page = 0 } = req.query;
+    const files = dbClient.db.collection('files');
+    let query;
+    if (!parentId) {
+      query = { userId: ObjectID(user) };
+    } else {
+      query = { parentId: ObjectID(parentId), userId: ObjectID(user) };
+    }
+    const result = await files.aggregate([
+      { $match: query },
+      { $skip: parseInt(page, 10) * 20 },
+      { $limit: 20 },
+    ]).toArray();
+    const newArr = result.map(({ _id, localPath, ...rest }) => ({ id: _id, ...rest }));
+    delete newArr.localPath;
+    res.status(200).json(newArr);
+  }
+
+  static async getShow(req, res) {
+    const token = req.header('X-Token');
+    const key = `auth_${token}`;
+    const userId = await redisClient.get(key);
+    if (!userId) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+    const { id } = req.params;
+    const files = dbClient.db.collection('files');
+    const objectId = new ObjectID(id);
+    const objectId2 = new ObjectID(userId);
+    const file = await files.findOne({ _id: objectId, userId: objectId2 });
+    if (!file) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    res.status(200).json(file);
+  }
+
+  static async putPublish(req, res) {
+    const token = req.header('X-Token');
+    const key = `auth_${token}`;
+    const userId = await redisClient.get(key);
+    if (!userId) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+    const { id } = req.params;
+    const files = dbClient.db.collection('files');
+    const objectId = new ObjectID(id);
+    const objectId2 = new ObjectID(userId);
+    const file = await files.findOne({ _id: objectId, userId: objectId2 });
+    if (!file) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    file.isPublic = true;
+    res.json(file);
+  }
+
+  static async putUnpublish(req, res) {
+    const token = req.header('X-Token');
+    const key = `auth_${token}`;
+    const userId = await redisClient.get(key);
+    if (!userId) {
+      res.status(401).json({ error: 'Unauthorized' });
+      return;
+    }
+    const { id } = req.params;
+    const files = dbClient.db.collection('files');
+    const objectId = new ObjectID(id);
+    const objectId2 = new ObjectID(userId);
+    const file = await files.findOne({ _id: objectId, userId: objectId2 });
+    if (!file) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    file.isPublic = false;
+    res.json(file);
+  }
+
+  static async getFile(req, res) {
+    const { id } = req.params;
+    const files = dbClient.db.collection('files');
+    const objectId = new ObjectID(id);
+    const file = await files.findOne({ _id: objectId });
+    if (!file) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    const token = req.header('X-Token');
+    const key = `auth_${token}`;
+    const userId = await redisClient.get(key);
+    if (!userId || (!file.isPublic && file.userId !== userId)) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    if (file.type === 'folder') {
+      res.status(404).json({ error: "A folder doesn't have content" });
+      return;
+    }
+    if (!fs.existsSync(file.localPath)) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    const mimeType = mime.lookup(file.name);
+    res.setHeader('Content-Type', mimeType);
+    const fileData = fs.readFileSync(file.localPath);
+    res.send(fileData);
   }
 }
 module.exports = FilesController;
